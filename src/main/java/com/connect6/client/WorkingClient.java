@@ -7,8 +7,7 @@ import io.grpc.stub.StreamObserver;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.util.concurrent.TimeUnit;
 
 public class WorkingClient extends JFrame {
@@ -16,28 +15,27 @@ public class WorkingClient extends JFrame {
     private Connect6GameGrpc.Connect6GameStub asyncStub;
     private Connect6GameGrpc.Connect6GameBlockingStub blockingStub;
 
-    private JTextArea logArea;
-    private JButton connectBtn;
-    private GamePanel gamePanel;
-    private String playerName;
-
     private int playerId;
     private StoneColor myColor = StoneColor.EMPTY;
     private boolean myTurn = false;
     private boolean gameStarted = false;
 
-    // Для выбора хода
-    private int selectedX1 = -1, selectedY1 = -1;
+    private GamePanel gamePanel;
+    private JLabel statusLabel;
+
+    // Состояние выбора хода
+    private int previewX1 = -1, previewY1 = -1;
+    private boolean showingPreview = false;
     private boolean selectingFirst = true;
     private boolean isFirstMoveOfGame = true;
 
     // Игровая доска
     private StoneColor[][] board = new StoneColor[19][19];
 
-    public WorkingClient(String name) {
-        this.playerName = name;
+    public WorkingClient() {
         initializeBoard();
-        initializeUI();
+        initializeGUI();
+        connectToServer();
     }
 
     private void initializeBoard() {
@@ -48,209 +46,27 @@ public class WorkingClient extends JFrame {
         }
     }
 
-    private void initializeUI() {
-        setTitle("Connect6 - " + playerName);
+    private void initializeGUI() {
+        setTitle("Connect6 Game (gRPC)");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        // Панель логов
-        logArea = new JTextArea(10, 50);
-        logArea.setEditable(false);
-        add(new JScrollPane(logArea), BorderLayout.SOUTH);
-
-        // Игровая панель
         gamePanel = new GamePanel();
         add(gamePanel, BorderLayout.CENTER);
 
-        // Панель кнопок
-        JPanel buttonPanel = new JPanel();
-        connectBtn = new JButton("Подключиться к игре");
-        connectBtn.addActionListener(e -> connectToGame());
+        statusLabel = new JLabel("Ожидание подключения...");
+        add(statusLabel, BorderLayout.SOUTH);
 
-        buttonPanel.add(connectBtn);
-        add(buttonPanel, BorderLayout.NORTH);
-
-        setSize(700, 800);
+        pack();
         setLocationRelativeTo(null);
         setVisible(true);
-
-        log("Клиент готов: " + playerName);
     }
 
-    // Внутренний класс для игровой панели
-    class GamePanel extends JPanel {
-        private static final int CELL_SIZE = 35;
-        private static final int BOARD_SIZE = 19;
-
-        public GamePanel() {
-            setPreferredSize(new Dimension(BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE));
-            setBackground(new Color(220, 179, 92)); // Цвет доски
-
-            addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (!gameStarted || !myTurn) {
-                        log("Сейчас не ваш ход!");
-                        return;
-                    }
-
-                    int x = e.getX() / CELL_SIZE;
-                    int y = e.getY() / CELL_SIZE;
-
-                    if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) {
-                        return;
-                    }
-
-                    handleCellClick(x, y);
-                }
-            });
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            drawBoard(g);
-            drawStones(g);
-
-            // Рисуем выделение выбранной клетки
-            if (selectedX1 != -1 && selectedY1 != -1) {
-                g.setColor(Color.RED);
-                g.drawRect(selectedX1 * CELL_SIZE, selectedY1 * CELL_SIZE,
-                        CELL_SIZE, CELL_SIZE);
-            }
-        }
-
-        private void drawBoard(Graphics g) {
-            g.setColor(Color.BLACK);
-
-            // Вертикальные линии
-            for (int i = 0; i < BOARD_SIZE; i++) {
-                g.drawLine(i * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE / 2,
-                        i * CELL_SIZE + CELL_SIZE / 2,
-                        (BOARD_SIZE - 1) * CELL_SIZE + CELL_SIZE / 2);
-            }
-
-            // Горизонтальные линии
-            for (int i = 0; i < BOARD_SIZE; i++) {
-                g.drawLine(CELL_SIZE / 2, i * CELL_SIZE + CELL_SIZE / 2,
-                        (BOARD_SIZE - 1) * CELL_SIZE + CELL_SIZE / 2,
-                        i * CELL_SIZE + CELL_SIZE / 2);
-            }
-
-            // Центральная точка
-            g.fillOval(9 * CELL_SIZE + CELL_SIZE / 2 - 3,
-                    9 * CELL_SIZE + CELL_SIZE / 2 - 3, 6, 6);
-        }
-
-        private void drawStones(Graphics g) {
-            for (int i = 0; i < BOARD_SIZE; i++) {
-                for (int j = 0; j < BOARD_SIZE; j++) {
-                    if (board[i][j] != StoneColor.EMPTY) {
-                        g.setColor(board[i][j] == StoneColor.BLACK ?
-                                Color.BLACK : Color.WHITE);
-                        g.fillOval(i * CELL_SIZE + 3, j * CELL_SIZE + 3,
-                                CELL_SIZE - 6, CELL_SIZE - 6);
-                        g.setColor(Color.GRAY);
-                        g.drawOval(i * CELL_SIZE + 3, j * CELL_SIZE + 3,
-                                CELL_SIZE - 6, CELL_SIZE - 6);
-                    }
-                }
-            }
-        }
-    }
-
-    private void handleCellClick(int x, int y) {
-        // Проверка, что клетка свободна
-        if (board[x][y] != StoneColor.EMPTY) {
-            log("Клетка уже занята!");
-            return;
-        }
-
-        // Первый ход черных - один камень в центр
-        if (isFirstMoveOfGame && myColor == StoneColor.BLACK) {
-            if (x == 9 && y == 9) {
-                sendMove(x, y, -1, -1);
-                board[x][y] = myColor;
-                isFirstMoveOfGame = false;
-                myTurn = false;
-                gamePanel.repaint();
-                log("Первый ход сделан! Ожидайте белых...");
-            } else {
-                log("Первый ход черных должен быть в центр (9,9)!");
-            }
-            return;
-        }
-
-        // Обычный ход (выбор двух камней)
-        if (selectingFirst) {
-            selectedX1 = x;
-            selectedY1 = y;
-            selectingFirst = false;
-            log("Выбрана первая позиция (" + x + "," + y + "). Выберите вторую.");
-            gamePanel.repaint();
-        } else {
-            if (x == selectedX1 && y == selectedY1) {
-                log("Нельзя выбрать ту же клетку!");
-                return;
-            }
-
-            sendMove(selectedX1, selectedY1, x, y);
-
-            // Обновляем доску
-            board[selectedX1][selectedY1] = myColor;
-            board[x][y] = myColor;
-
-            // Сбрасываем состояние
-            selectedX1 = selectedY1 = -1;
-            selectingFirst = true;
-            isFirstMoveOfGame = false;
-            myTurn = false;
-
-            gamePanel.repaint();
-            log("Ход отправлен! Ожидайте ответа противника...");
-        }
-    }
-
-    private void sendMove(int x1, int y1, int x2, int y2) {
-        Position pos1 = Position.newBuilder().setX(x1).setY(y1).build();
-        Position pos2 = Position.newBuilder().setX(x2).setY(y2).build();
-
-        MoveRequest request = MoveRequest.newBuilder()
-                .setPlayerId(playerId)
-                .setPosition1(pos1)
-                .setPosition2(pos2)
-                .build();
-
-        // Используем блокирующий вызов для простоты
-        new Thread(() -> {
-            try {
-                MoveResponse response = blockingStub.makeMove(request);
-
-                SwingUtilities.invokeLater(() -> {
-                    if (response.getSuccess()) {
-                        log("✓ Ход принят сервером: " + response.getMessage());
-                    } else {
-                        log("❌ Ошибка хода: " + response.getMessage());
-                        myTurn = true; // Возвращаем ход
-                    }
-                });
-
-            } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> {
-                    log("❌ Ошибка отправки хода: " + e.getMessage());
-                    myTurn = true;
-                });
-            }
-        }).start();
-    }
-
-    private void connectToGame() {
-        connectBtn.setEnabled(false);
+    private void connectToServer() {
+        statusLabel.setText("Подключение к серверу...");
 
         new Thread(() -> {
             try {
-                log("Создаем соединение с сервером...");
-
                 channel = ManagedChannelBuilder.forAddress("localhost", 8080)
                         .usePlaintext()
                         .keepAliveTime(30, TimeUnit.SECONDS)
@@ -261,87 +77,75 @@ public class WorkingClient extends JFrame {
                 asyncStub = Connect6GameGrpc.newStub(channel);
                 blockingStub = Connect6GameGrpc.newBlockingStub(channel);
 
-                log("Соединение установлено. Отправляем запрос...");
-
-                // ДВУСТОРОННИЙ ПОТОКОВЫЙ вызов
+                // ДВУСТОРОННИЙ ПОТОК
                 StreamObserver<ConnectRequest> requestObserver =
                         asyncStub.connectPlayer(new StreamObserver<ConnectResponse>() {
 
                             @Override
                             public void onNext(ConnectResponse response) {
-                                SwingUtilities.invokeLater(() -> {
-                                    log("=== Ответ сервера ===");
-                                    log("ID игрока: " + response.getPlayerId());
-                                    log("Цвет: " + response.getColor());
-                                    log("Сообщение: " + response.getMessage());
-                                    log("===================");
-
-                                    playerId = response.getPlayerId();
-                                    myColor = response.getColor();
-
-                                    if (myColor != StoneColor.EMPTY) {
-                                        gameStarted = true;
-
-                                        log("✨✨✨ ИГРА НАЧАЛАСЬ! ✨✨✨");
-                                        log("Вы играете за " +
-                                                (myColor == StoneColor.BLACK ? "ЧЁРНЫХ" : "БЕЛЫХ"));
-
-                                        if (myColor == StoneColor.BLACK) {
-                                            myTurn = true;
-                                            log("⚠ ВАЖНО: Первый ход черных - ОДИН камень в центр доски (9,9)");
-                                        } else {
-                                            log("⏳ Ожидайте ход черных...");
-                                        }
-
-                                        // Подписываемся на обновления
-                                        subscribeToUpdates(playerId);
-                                    } else {
-                                        log("⏳ Ожидаем второго игрока... " + response.getMessage());
-                                    }
-                                });
+                                SwingUtilities.invokeLater(() -> handleConnectResponse(response));
                             }
 
                             @Override
                             public void onError(Throwable t) {
                                 SwingUtilities.invokeLater(() -> {
-                                    log("❌ Ошибка соединения: " + t.getMessage());
-                                    connectBtn.setEnabled(true);
+                                    statusLabel.setText("Ошибка подключения: " + t.getMessage());
+                                    JOptionPane.showMessageDialog(WorkingClient.this,
+                                            "Ошибка: " + t.getMessage(),
+                                            "Ошибка подключения", JOptionPane.ERROR_MESSAGE);
+                                    System.exit(1);
                                 });
                             }
 
                             @Override
                             public void onCompleted() {
                                 SwingUtilities.invokeLater(() -> {
-                                    log("✓ Соединение с сервером завершено");
+                                    statusLabel.setText("Соединение установлено");
                                 });
                             }
                         });
 
                 // Отправляем запрос на подключение
                 ConnectRequest request = ConnectRequest.newBuilder()
-                        .setPlayerName(playerName)
+                        .setPlayerName("Игрок")
                         .build();
 
                 requestObserver.onNext(request);
-                // НЕ закрываем соединение!
 
-                // Держим соединение живым
-                while (true) {
-                    Thread.sleep(1000);
-                }
+                // Оставляем соединение открытым
 
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> {
-                    log("❌ Ошибка: " + e.getMessage());
-                    connectBtn.setEnabled(true);
+                    statusLabel.setText("Ошибка: " + e.getMessage());
+                    JOptionPane.showMessageDialog(WorkingClient.this,
+                            "Не удалось подключиться к серверу",
+                            "Ошибка", JOptionPane.ERROR_MESSAGE);
+                    System.exit(1);
                 });
             }
         }).start();
     }
 
-    private void subscribeToUpdates(int playerId) {
-        log("Подписываюсь на обновления игры...");
+    private void handleConnectResponse(ConnectResponse response) {
+        playerId = response.getPlayerId();
+        myColor = response.getColor();
 
+        if (myColor == StoneColor.EMPTY) {
+            statusLabel.setText("Ожидание второго игрока... (ID: " + playerId + ")");
+        } else {
+            gameStarted = true;
+            statusLabel.setText("Вы играете за " +
+                    (myColor == StoneColor.BLACK ? "черных" : "белых"));
+            if (myColor == StoneColor.BLACK) {
+                myTurn = true;
+                statusLabel.setText("Ваш ход (первый ход - один камень в центр)");
+            }
+
+            subscribeToGameUpdates();
+        }
+    }
+
+    private void subscribeToGameUpdates() {
         UpdateRequest request = UpdateRequest.newBuilder()
                 .setPlayerId(playerId)
                 .build();
@@ -349,28 +153,166 @@ public class WorkingClient extends JFrame {
         asyncStub.getGameUpdates(request, new StreamObserver<GameUpdate>() {
             @Override
             public void onNext(GameUpdate update) {
+                SwingUtilities.invokeLater(() -> handleGameUpdate(update));
+            }
+
+            @Override
+            public void onError(Throwable t) {
                 SwingUtilities.invokeLater(() -> {
-                    log("📢 Обновление: " + update.getType() + " - " + update.getMessage());
+                    statusLabel.setText("Ошибка получения обновлений: " + t.getMessage());
+                });
+            }
 
-                    // Обработка ходов противника
-                    if (update.getType() == GameUpdate.UpdateType.PLAYER_MOVED &&
-                            update.getPlayerId() != playerId) {
+            @Override
+            public void onCompleted() {
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("Игра завершена");
+                });
+            }
+        });
+    }
 
-                        // Обновляем доску
-                        if (update.hasPosition1()) {
-                            Position pos1 = update.getPosition1();
-                            board[pos1.getX()][pos1.getY()] = update.getColor();
-                        }
-                        if (update.hasPosition2() &&
-                                update.getPosition2().getX() != -1 &&
-                                update.getPosition2().getY() != -1) {
-                            Position pos2 = update.getPosition2();
-                            board[pos2.getX()][pos2.getY()] = update.getColor();
-                        }
+    private void handleGameUpdate(GameUpdate update) {
+        switch (update.getType()) {
+            case GAME_STARTED:
+                statusLabel.setText("Вы подключены к игре");
+                break;
 
-                        gamePanel.repaint();
+            case PLAYER_MOVED:
+                if (update.getPlayerId() != playerId) {
+                    // Ход противника
+                    Position pos1 = update.getPosition1();
+                    Position pos2 = update.getPosition2();
+
+                    if (pos1 != null) {
+                        board[pos1.getX()][pos1.getY()] = update.getColor();
+                    }
+                    if (pos2 != null && pos2.getX() != -1 && pos2.getY() != -1) {
+                        board[pos2.getX()][pos2.getY()] = update.getColor();
+                    }
+
+                    gamePanel.repaint();
+                    gamePanel.clearPreview();
+
+                    if (update.getColor() != myColor) {
                         myTurn = true;
-                        log("✓ Ход противника принят. Теперь ваш ход!");
+                        statusLabel.setText("Ваш ход");
+                    } else {
+                        myTurn = false;
+                        statusLabel.setText("Ход противника");
+                    }
+                }
+                break;
+
+            case GAME_OVER:
+                gameStarted = false;
+                myTurn = false;
+
+                String result = update.getColor() == myColor ?
+                        "Вы победили!" : "Вы проиграли!";
+                statusLabel.setText("Игра окончена: " + result);
+                gamePanel.clearPreview();
+
+                int option = JOptionPane.showConfirmDialog(
+                        null,
+                        result + "\n" + update.getMessage() + "\nХотите сыграть еще раз?",
+                        "Игра окончена",
+                        JOptionPane.YES_NO_OPTION
+                );
+
+                if (option == JOptionPane.YES_OPTION) {
+                    requestNewGame();
+                } else {
+                    disconnect();
+                }
+                break;
+
+            case ERROR:
+                gamePanel.clearPreview();
+                selectingFirst = true;
+
+                String errorMsg = update.getMessage();
+                if (errorMsg == null || errorMsg.isEmpty()) {
+                    errorMsg = "Неверный ход! Попробуйте другой.";
+                }
+
+                JOptionPane.showMessageDialog(WorkingClient.this,
+                        errorMsg, "Ошибка хода", JOptionPane.ERROR_MESSAGE);
+
+                if (myTurn) {
+                    statusLabel.setText("Ваш ход (исправьте ход)");
+                }
+                break;
+        }
+    }
+
+    private void sendMove(int x1, int y1, int x2, int y2) {
+        if (!gameStarted || !myTurn) return;
+
+        Position pos1 = Position.newBuilder()
+                .setX(x1)
+                .setY(y1)
+                .build();
+
+        Position pos2 = Position.newBuilder()
+                .setX(x2)
+                .setY(y2)
+                .build();
+
+        MoveRequest request = MoveRequest.newBuilder()
+                .setPlayerId(playerId)
+                .setPosition1(pos1)
+                .setPosition2(pos2)
+                .build();
+
+        new Thread(() -> {
+            try {
+                MoveResponse response = blockingStub.makeMove(request);
+
+                SwingUtilities.invokeLater(() -> {
+                    if (response.getSuccess()) {
+                        // Добавляем камни на свою доску сразу
+                        board[x1][y1] = myColor;
+                        if (x2 != -1 && y2 != -1) {
+                            board[x2][y2] = myColor;
+                        }
+
+                        myTurn = false;
+                        statusLabel.setText("Ход противника");
+                        gamePanel.clearPreview();
+                        gamePanel.repaint();
+                    } else {
+                        statusLabel.setText("Ошибка хода: " + response.getMessage());
+                        myTurn = true;
+                        JOptionPane.showMessageDialog(WorkingClient.this,
+                                response.getMessage(),
+                                "Ошибка хода", JOptionPane.ERROR_MESSAGE);
+                    }
+                });
+
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("Ошибка отправки хода: " + e.getMessage());
+                    myTurn = true;
+                });
+            }
+        }).start();
+    }
+
+    private void requestNewGame() {
+        NewGameRequest request = NewGameRequest.newBuilder()
+                .setPlayerId(playerId)
+                .build();
+
+        asyncStub.requestNewGame(request, new StreamObserver<NewGameResponse>() {
+            @Override
+            public void onNext(NewGameResponse response) {
+                SwingUtilities.invokeLater(() -> {
+                    if (response.getAccepted()) {
+                        statusLabel.setText(response.getMessage());
+                        // Сбрасываем игру и переподключаемся
+                        resetGame();
+                        connectToServer();
                     }
                 });
             }
@@ -378,26 +320,183 @@ public class WorkingClient extends JFrame {
             @Override
             public void onError(Throwable t) {
                 SwingUtilities.invokeLater(() -> {
-                    log("❌ Ошибка в обновлениях: " + t.getMessage());
+                    statusLabel.setText("Ошибка запроса новой игры: " + t.getMessage());
                 });
             }
 
             @Override
             public void onCompleted() {
-                SwingUtilities.invokeLater(() -> {
-                    log("Поток обновлений завершен");
-                });
+                // Запрос завершен
             }
         });
     }
 
-    private void log(String message) {
-        logArea.append(message + "\n");
-        logArea.setCaretPosition(logArea.getDocument().getLength());
+    private void resetGame() {
+        initializeBoard();
+        gameStarted = false;
+        myTurn = false;
+        myColor = StoneColor.EMPTY;
+        selectingFirst = true;
+        isFirstMoveOfGame = true;
+        previewX1 = previewY1 = -1;
+        showingPreview = false;
+        gamePanel.repaint();
+    }
+
+    private void disconnect() {
+        if (channel != null) {
+            channel.shutdown();
+        }
+        new Timer(2000, e -> System.exit(0)).start();
+    }
+
+    // Внутренний класс для игровой панели
+    class GamePanel extends JPanel {
+        private static final int CELL_SIZE = 30;
+        private static final int BOARD_SIZE = 19;
+
+        public GamePanel() {
+            setPreferredSize(new Dimension(BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE));
+
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (!myTurn) {
+                        JOptionPane.showMessageDialog(WorkingClient.this,
+                                "Сейчас не ваш ход!", "Предупреждение", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+
+                    int x = e.getX() / CELL_SIZE;
+                    int y = e.getY() / CELL_SIZE;
+
+                    if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) {
+                        JOptionPane.showMessageDialog(WorkingClient.this,
+                                "Координаты вне доски!", "Ошибка", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    if (board[x][y] != StoneColor.EMPTY) {
+                        JOptionPane.showMessageDialog(WorkingClient.this,
+                                "Эта клетка уже занята!", "Ошибка", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    // Первый ход черных
+                    if (isFirstMoveOfGame && myColor == StoneColor.BLACK) {
+                        if (x == 9 && y == 9) {
+                            showingPreview = false;
+                            repaint();
+
+                            sendMove(x, y, -1, -1);
+                            myTurn = false;
+                            isFirstMoveOfGame = false;
+                            statusLabel.setText("Ход противника");
+                        } else {
+                            JOptionPane.showMessageDialog(WorkingClient.this,
+                                    "Первый ход черных должен быть в центр доски (9,9)!",
+                                    "Первый ход", JOptionPane.INFORMATION_MESSAGE);
+                        }
+                        return;
+                    }
+
+                    // Первый ход белых или обычный ход
+                    if (selectingFirst) {
+                        previewX1 = x;
+                        previewY1 = y;
+                        selectingFirst = false;
+                        showingPreview = true;
+                        if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
+                            statusLabel.setText("Выберите вторую позицию (первый ход белых)");
+                        } else {
+                            statusLabel.setText("Выберите вторую позицию");
+                        }
+                        repaint();
+                    } else {
+                        if (x == previewX1 && y == previewY1) {
+                            JOptionPane.showMessageDialog(WorkingClient.this,
+                                    "Нельзя выбрать ту же клетку для второго камня!",
+                                    "Ошибка", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+
+                        showingPreview = false;
+                        repaint();
+
+                        sendMove(previewX1, previewY1, x, y);
+                        selectingFirst = true;
+                        if (isFirstMoveOfGame) {
+                            isFirstMoveOfGame = false;
+                        }
+                        myTurn = false;
+                        statusLabel.setText("Ход противника");
+                    }
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            drawBoard(g);
+            drawStones(g);
+
+            // Предпросмотр выбора
+            if (showingPreview && myTurn) {
+                Graphics2D g2d = (Graphics2D) g;
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+                g2d.setColor(Color.GRAY);
+
+                if (previewX1 != -1 && previewY1 != -1) {
+                    g2d.fillOval(previewX1 * CELL_SIZE + 2, previewY1 * CELL_SIZE + 2,
+                            CELL_SIZE - 4, CELL_SIZE - 4);
+                }
+
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
+            }
+        }
+
+        private void drawBoard(Graphics g) {
+            g.setColor(new Color(220, 179, 92));
+            g.fillRect(0, 0, getWidth(), getHeight());
+
+            g.setColor(Color.BLACK);
+            for (int i = 0; i < BOARD_SIZE; i++) {
+                g.drawLine(CELL_SIZE / 2, i * CELL_SIZE + CELL_SIZE / 2,
+                        (BOARD_SIZE - 1) * CELL_SIZE + CELL_SIZE / 2,
+                        i * CELL_SIZE + CELL_SIZE / 2);
+                g.drawLine(i * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE / 2,
+                        i * CELL_SIZE + CELL_SIZE / 2,
+                        (BOARD_SIZE - 1) * CELL_SIZE + CELL_SIZE / 2);
+            }
+        }
+
+        private void drawStones(Graphics g) {
+            for (int i = 0; i < BOARD_SIZE; i++) {
+                for (int j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] != StoneColor.EMPTY) {
+                        g.setColor(board[i][j] == StoneColor.BLACK ? Color.BLACK : Color.WHITE);
+                        g.fillOval(i * CELL_SIZE + 2, j * CELL_SIZE + 2,
+                                CELL_SIZE - 4, CELL_SIZE - 4);
+                        g.setColor(Color.GRAY);
+                        g.drawOval(i * CELL_SIZE + 2, j * CELL_SIZE + 2,
+                                CELL_SIZE - 4, CELL_SIZE - 4);
+                    }
+                }
+            }
+        }
+
+        public void clearPreview() {
+            showingPreview = false;
+            previewX1 = -1;
+            previewY1 = -1;
+            repaint();
+        }
     }
 
     public static void main(String[] args) {
-        String name = args.length > 0 ? args[0] : "Игрок";
-        SwingUtilities.invokeLater(() -> new WorkingClient(name));
+        SwingUtilities.invokeLater(() -> {
+            new WorkingClient();
+        });
     }
 }
