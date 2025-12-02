@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package connect6;
+
+option java_multiple_files = true;
+option java_package = "com.connect6.grpc";
+option java_outer_classname = "Connect6Proto";
+
+// Определение сервиса
+service Connect6Game {
+  // Подключение игрока - ДВУСТОРОННИЙ ПОТОК
+  rpc ConnectPlayer(stream ConnectRequest) returns (stream ConnectResponse);
+
+  // Сделать ход
+  rpc MakeMove(MoveRequest) returns (MoveResponse);
+
+  // Получить обновления игры (стриминг)
+  rpc GetGameUpdates(UpdateRequest) returns (stream GameUpdate);
+
+  // Новая игра
+  rpc RequestNewGame(NewGameRequest) returns (NewGameResponse);
+}
+
+// Сообщения для запросов/ответов
+message ConnectRequest {
+  string player_name = 1;
+}
+
+message ConnectResponse {
+  int32 player_id = 1;
+  StoneColor color = 2;
+  string message = 3;
+}
+
+message MoveRequest {
+  int32 player_id = 1;
+  Position position1 = 2;
+  Position position2 = 3;
+}
+
+message MoveResponse {
+  bool success = 1;
+  string message = 2;
+  BoardState board_state = 3;
+}
+
+message UpdateRequest {
+  int32 player_id = 1;
+}
+
+message GameUpdate {
+  enum UpdateType {
+    PLAYER_MOVED = 0;
+    GAME_STARTED = 1;
+    GAME_OVER = 2;
+    PLAYER_CONNECTED = 3;
+    ERROR = 4;
+  }
+
+  UpdateType type = 1;
+  int32 player_id = 2;
+  Position position1 = 3;
+  Position position2 = 4;
+  StoneColor color = 5;
+  string message = 6;
+  BoardState board_state = 7;
+}
+
+message NewGameRequest {
+  int32 player_id = 1;
+}
+
+message NewGameResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+// Вспомогательные сообщения
+message Position {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message BoardState {
+  repeated StoneColor row = 1;
+  int32 current_player_id = 2;
+  StoneColor winner = 3;
+  bool game_over = 4;
+  bool first_move = 5;
+}
+
+enum StoneColor {
+  EMPTY = 0;
+  BLACK = 1;
+  WHITE = 2;
+}
