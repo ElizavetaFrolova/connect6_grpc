@@ -54,7 +54,10 @@ public class WorkingClient extends JFrame {
         gamePanel = new GamePanel();
         add(gamePanel, BorderLayout.CENTER);
 
-        statusLabel = new JLabel("Ожидание подключения...");
+        // Более информативный начальный статус
+        statusLabel = new JLabel("Подключение к серверу Connect6...");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        statusLabel.setFont(new Font("Arial", Font.BOLD, 12));
         add(statusLabel, BorderLayout.SOUTH);
 
         pack();
@@ -134,11 +137,34 @@ public class WorkingClient extends JFrame {
             statusLabel.setText("Ожидание второго игрока... (ID: " + playerId + ")");
         } else {
             gameStarted = true;
-            statusLabel.setText("Вы играете за " +
-                    (myColor == StoneColor.BLACK ? "черных" : "белых"));
+
+            // Сразу показываем полный статус
+            String status = "Вы играете за " +
+                    (myColor == StoneColor.BLACK ? "черных" : "белых") +
+                    " (ID: " + playerId + ")";
+
             if (myColor == StoneColor.BLACK) {
                 myTurn = true;
-                statusLabel.setText("Ваш ход (первый ход - один камень в центр)");
+                status += " - ВАШ ХОД! Первый ход: ОДИН камень в центр (9,9)";
+            } else {
+                status += " - Ожидайте ход черных";
+            }
+
+            statusLabel.setText(status);
+
+            // Показываем информационное сообщение в начале игры
+            if (myColor == StoneColor.BLACK) {
+                JOptionPane.showMessageDialog(this,
+                        "Вы играете ЧЕРНЫМИ!\n\n" +
+                                "Первый ход черных: поставьте ОДИН камень в центр доски (клетка 9,9).\n" +
+                                "Кликните в центр доски для первого хода.",
+                        "Начало игры", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "Вы играете БЕЛЫМИ!\n\n" +
+                                "Ожидайте первый ход черных (они должны поставить один камень в центр).\n" +
+                                "Затем ваш ход: нужно будет поставить ДВА камня.",
+                        "Начало игры", JOptionPane.INFORMATION_MESSAGE);
             }
 
             subscribeToGameUpdates();
@@ -194,12 +220,20 @@ public class WorkingClient extends JFrame {
                     gamePanel.repaint();
                     gamePanel.clearPreview();
 
+                    // Проверяем, чей это был ход
                     if (update.getColor() != myColor) {
                         myTurn = true;
-                        statusLabel.setText("Ваш ход");
+
+                        // Подробное сообщение в зависимости от ситуации
+                        if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
+                            statusLabel.setText("ВАШ ХОД! Первый ход белых: поставьте ДВА камня");
+                        } else {
+                            statusLabel.setText("ВАШ ХОД! Поставьте два камня");
+                        }
+
                     } else {
                         myTurn = false;
-                        statusLabel.setText("Ход противника");
+                        statusLabel.setText("Ход противника...");
                     }
                 }
                 break;
@@ -362,8 +396,17 @@ public class WorkingClient extends JFrame {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     if (!myTurn) {
+                        String message = "Сейчас не ваш ход!\n";
+                        if (myColor == StoneColor.BLACK && !gameStarted) {
+                            message += "Игра еще не началась.";
+                        } else if (myColor == StoneColor.WHITE && isFirstMoveOfGame) {
+                            message += "Ожидайте первый ход черных (один камень в центр).";
+                        } else {
+                            message += "Ход противника.";
+                        }
+
                         JOptionPane.showMessageDialog(WorkingClient.this,
-                                "Сейчас не ваш ход!", "Предупреждение", JOptionPane.WARNING_MESSAGE);
+                                message, "Предупреждение", JOptionPane.WARNING_MESSAGE);
                         return;
                     }
 
@@ -391,11 +434,14 @@ public class WorkingClient extends JFrame {
                             sendMove(x, y, -1, -1);
                             myTurn = false;
                             isFirstMoveOfGame = false;
-                            statusLabel.setText("Ход противника");
+                            statusLabel.setText("Ход отправлен! Ожидайте белых...");
                         } else {
+                            String message = "Первый ход черных должен быть в центр доски (9,9)!\n\n";
+                            message += "Текущая позиция: (" + x + "," + y + ")\n";
+                            message += "Нужная позиция: (9,9) - центр доски";
+
                             JOptionPane.showMessageDialog(WorkingClient.this,
-                                    "Первый ход черных должен быть в центр доски (9,9)!",
-                                    "Первый ход", JOptionPane.INFORMATION_MESSAGE);
+                                    message, "Первый ход", JOptionPane.INFORMATION_MESSAGE);
                         }
                         return;
                     }
@@ -406,16 +452,22 @@ public class WorkingClient extends JFrame {
                         previewY1 = y;
                         selectingFirst = false;
                         showingPreview = true;
+
+                        String status = "Выбрана первая позиция (" + x + "," + y + "). ";
                         if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
-                            statusLabel.setText("Выберите вторую позицию (первый ход белых)");
+                            status += "Выберите вторую позицию (первый ход белых - ДВА камня)";
                         } else {
-                            statusLabel.setText("Выберите вторую позицию");
+                            status += "Выберите вторую позицию";
                         }
+
+                        statusLabel.setText(status);
                         repaint();
                     } else {
                         if (x == previewX1 && y == previewY1) {
                             JOptionPane.showMessageDialog(WorkingClient.this,
-                                    "Нельзя выбрать ту же клетку для второго камня!",
+                                    "Нельзя выбрать ту же клетку для второго камня!\n" +
+                                            "Первая позиция: (" + previewX1 + "," + previewY1 + ")\n" +
+                                            "Выберите другую клетку.",
                                     "Ошибка", JOptionPane.ERROR_MESSAGE);
                             return;
                         }
@@ -429,7 +481,7 @@ public class WorkingClient extends JFrame {
                             isFirstMoveOfGame = false;
                         }
                         myTurn = false;
-                        statusLabel.setText("Ход противника");
+                        statusLabel.setText("Ход отправлен! Ожидайте ответа противника...");
                     }
                 }
             });
