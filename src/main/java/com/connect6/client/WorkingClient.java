@@ -127,16 +127,12 @@ public class WorkingClient extends JFrame {
         myColor = response.getColor();
 
         if (myColor == StoneColor.EMPTY) {
-            statusLabel.setText("Ожидание второго игрока...");
+               statusLabel.setText("Ожидание второго игрока...");
         } else {
             gameStarted = true;
 
-            statusLabel.setText("Вы играете за " +
-                    (myColor == StoneColor.BLACK ? "черных" : "белых"));
-
             if (myColor == StoneColor.BLACK) {
                 myTurn = true;
-                statusLabel.setText("Ваш ход (первый ход - один камень в центр)");
             }
 
             subscribeToGameUpdates();
@@ -252,7 +248,6 @@ public class WorkingClient extends JFrame {
         }
     }
 
-
     private void sendMove(int x1, int y1, int x2, int y2) {
         if (!gameStarted || !myTurn) return;
 
@@ -303,13 +298,6 @@ public class WorkingClient extends JFrame {
                 });
             }
         }).start();
-    }
-
-    private void disconnect() {
-        if (channel != null) {
-            channel.shutdown();
-        }
-        System.exit(0);
     }
 
     class GamePanel extends JPanel {

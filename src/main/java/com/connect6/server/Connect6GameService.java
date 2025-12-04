@@ -88,7 +88,7 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
             player1.color = StoneColor.BLACK;
             player2.color = StoneColor.WHITE;
 
-            System.out.println("✨ Создаем игру #" + gameId + ": " +
+            System.out.println("Создаем игру #" + gameId + ": " +
                     player1.name + " (черные, ID:" + player1.id + ") vs " +
                     player2.name + " (белые, ID:" + player2.id + ")");
 
@@ -126,14 +126,14 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
                     int playerId = playerCounter.getAndIncrement();
                     session = new PlayerSession(playerId, request.getPlayerName(), responseObserver);
 
-                    System.out.println("🎮 Подключение: " + request.getPlayerName() + " (ID: " + playerId + ")");
+                    System.out.println("Подключение: " + request.getPlayerName() + " (ID: " + playerId + ")");
 
                     playerSessions.put(playerId, session);
 
                     try {
                         waitingQueue.put(session);
 
-                        System.out.println("⏳ Игрок " + playerId + " добавлен в очередь ожидания. В очереди: " + waitingQueue.size());
+                        System.out.println("Игрок " + playerId + " добавлен в очередь ожидания. В очереди: " + waitingQueue.size());
 
                         ConnectResponse waitResponse = ConnectResponse.newBuilder()
                                 .setPlayerId(playerId)
@@ -152,7 +152,7 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
 
             @Override
             public void onError(Throwable t) {
-                System.err.println("❌ Ошибка соединения с игроком: " +
+                System.err.println("Ошибка соединения с игроком: " +
                         (session != null ? session.name : "unknown") + ": " + t.getMessage());
 
                 if (session != null) {
@@ -162,7 +162,7 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
 
             @Override
             public void onCompleted() {
-                System.out.println("🔌 Игрок отключился: " +
+                System.out.println("Игрок отключился: " +
                         (session != null ? session.name : "unknown"));
 
                 if (session != null) {
@@ -310,7 +310,6 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
     public void getGameUpdates(UpdateRequest request,
                                StreamObserver<GameUpdate> responseObserver) {
         int playerId = request.getPlayerId();
-        System.out.println("Подписка на обновления от игрока " + playerId);
 
         PlayerSession player = playerSessions.get(playerId);
         if (player != null) {
