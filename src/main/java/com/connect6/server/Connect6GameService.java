@@ -261,11 +261,13 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
         }
 
         if (winner != StoneColor.EMPTY) {
+            String winnerName = winner == StoneColor.BLACK ? "Черные" : "Белые";
+            String gameOverMessage = "Игра окончена! Победитель: " + winnerName;
+
             GameUpdate gameOver = GameUpdate.newBuilder()
                     .setType(GameUpdate.UpdateType.GAME_OVER)
                     .setColor(winner)
-                    .setMessage("Игра окончена! Победитель: " +
-                            (winner == StoneColor.BLACK ? "Черные" : "Белые"))
+                    .setMessage(gameOverMessage)
                     .build();
 
             if (player.updateObserver != null) {
@@ -279,8 +281,7 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
 
             MoveResponse response = MoveResponse.newBuilder()
                     .setSuccess(true)
-                    .setMessage("Игра окончена! " +
-                            (winner == player.color ? "Вы победили!" : "Вы проиграли!"))
+                    .setMessage("Игра завершена")
                     .build();
             responseObserver.onNext(response);
 
@@ -314,19 +315,11 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
         PlayerSession player = playerSessions.get(playerId);
         if (player != null) {
             player.updateObserver = responseObserver;
-
-            GameUpdate update = GameUpdate.newBuilder()
-                    .setType(GameUpdate.UpdateType.GAME_STARTED)
-                    .setMessage("Вы успешно подписались на обновления игры")
-                    .build();
-
-            responseObserver.onNext(update);
         } else {
             GameUpdate error = GameUpdate.newBuilder()
                     .setType(GameUpdate.UpdateType.ERROR)
                     .setMessage("Игрок не найден")
                     .build();
-
             responseObserver.onNext(error);
             responseObserver.onCompleted();
         }

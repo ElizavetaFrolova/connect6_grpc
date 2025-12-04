@@ -98,9 +98,7 @@ public class WorkingClient extends JFrame {
 
                             @Override
                             public void onCompleted() {
-                                SwingUtilities.invokeLater(() -> {
-                                    statusLabel.setText("Соединение установлено");
-                                });
+
                             }
                         });
 
@@ -126,9 +124,9 @@ public class WorkingClient extends JFrame {
         playerId = response.getPlayerId();
         myColor = response.getColor();
 
-        if (myColor == StoneColor.EMPTY) {
-               statusLabel.setText("Ожидание второго игрока...");
-        } else {
+        statusLabel.setText(response.getMessage());
+
+        if (myColor != StoneColor.EMPTY) {
             gameStarted = true;
 
             if (myColor == StoneColor.BLACK) {
@@ -169,18 +167,14 @@ public class WorkingClient extends JFrame {
     private void handleGameUpdate(GameUpdate update) {
         switch (update.getType()) {
             case GAME_STARTED:
-                if (myColor != StoneColor.EMPTY) {
-                    if (myColor == StoneColor.BLACK) {
-                        statusLabel.setText("Вы играете черными. Ваш ход (первый ход - один камень в центр)");
-                    } else {
-                        statusLabel.setText("Вы играете белыми. Ожидайте ход черных");
-                    }
-                } else {
-                    statusLabel.setText("Игра началась");
-                }
+                statusLabel.setText(update.getMessage());
                 break;
 
             case PLAYER_MOVED:
+                if (!gameStarted) {
+                    return;
+                }
+
                 if (update.getPlayerId() != playerId) {
                     Position pos1 = update.getPosition1();
                     Position pos2 = update.getPosition2();
@@ -194,10 +188,12 @@ public class WorkingClient extends JFrame {
 
                     if (update.getColor() != myColor) {
                         myTurn = true;
-                        statusLabel.setText(isFirstMoveOfGame && myColor == StoneColor.WHITE ?
-                                "Ваш ход (первый ход белых)" : "Ваш ход");
+
                         if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
+                            statusLabel.setText("Ваш ход (первый ход белых)");
                             isFirstMoveOfGame = false;
+                        } else {
+                            statusLabel.setText("Ваш ход");
                         }
                     } else {
                         myTurn = false;
@@ -210,42 +206,51 @@ public class WorkingClient extends JFrame {
                 gameStarted = false;
                 myTurn = false;
 
-                String result = update.getColor() == myColor ?
+                String playerResult = update.getColor() == myColor ?
                         "Вы победили!" : "Вы проиграли!";
-                String message = update.getMessage();
-                if (message == null || message.isEmpty()) {
-                    message = result;
-                }
 
-                statusLabel.setText("Игра окончена: " + result);
+                statusLabel.setText(playerResult);
                 gamePanel.clearPreview();
 
                 JOptionPane.showMessageDialog(
                         WorkingClient.this,
-                        message,
+                        update.getMessage() + "\n" + playerResult,
                         "Игра окончена",
                         JOptionPane.INFORMATION_MESSAGE
                 );
-
+                new Timer(3000, e -> disconnect()).start();
                 break;
 
             case ERROR:
+                if (!gameStarted) {
+                    return;
+                }
+
                 gamePanel.clearPreview();
                 selectingFirst = true;
 
-                String errorMsg = update.getMessage();
-                if (errorMsg == null || errorMsg.isEmpty()) {
-                    errorMsg = "Неверный ход! Попробуйте другой.";
-                }
-
                 JOptionPane.showMessageDialog(WorkingClient.this,
-                        errorMsg, "Ошибка хода", JOptionPane.ERROR_MESSAGE);
+                        update.getMessage(),
+                        "Ошибка хода",
+                        JOptionPane.ERROR_MESSAGE);
 
                 if (myTurn) {
                     statusLabel.setText("Ваш ход (исправьте ход)");
                 }
                 break;
         }
+    }
+
+    private void disconnect() {
+        if (channel != null) {
+            channel.shutdown();
+            try {
+                channel.awaitTermination(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        System.exit(0);
     }
 
     private void sendMove(int x1, int y1, int x2, int y2) {
