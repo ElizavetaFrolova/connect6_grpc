@@ -23,13 +23,11 @@ public class WorkingClient extends JFrame {
     private GamePanel gamePanel;
     private JLabel statusLabel;
 
-    // Состояние выбора хода
     private int previewX1 = -1, previewY1 = -1;
     private boolean showingPreview = false;
     private boolean selectingFirst = true;
     private boolean isFirstMoveOfGame = true;
 
-    // Игровая доска
     private StoneColor[][] board = new StoneColor[19][19];
 
     public WorkingClient() {
@@ -54,7 +52,6 @@ public class WorkingClient extends JFrame {
         gamePanel = new GamePanel();
         add(gamePanel, BorderLayout.CENTER);
 
-        // Более информативный начальный статус
         statusLabel = new JLabel("Подключение к серверу Connect6...");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
         statusLabel.setFont(new Font("Arial", Font.BOLD, 12));
@@ -80,7 +77,6 @@ public class WorkingClient extends JFrame {
                 asyncStub = Connect6GameGrpc.newStub(channel);
                 blockingStub = Connect6GameGrpc.newBlockingStub(channel);
 
-                // ДВУСТОРОННИЙ ПОТОК
                 StreamObserver<ConnectRequest> requestObserver =
                         asyncStub.connectPlayer(new StreamObserver<ConnectResponse>() {
 
@@ -108,14 +104,11 @@ public class WorkingClient extends JFrame {
                             }
                         });
 
-                // Отправляем запрос на подключение
                 ConnectRequest request = ConnectRequest.newBuilder()
                         .setPlayerName("Игрок")
                         .build();
 
                 requestObserver.onNext(request);
-
-                // Оставляем соединение открытым
 
             } catch (Exception e) {
                 SwingUtilities.invokeLater(() -> {
@@ -138,8 +131,6 @@ public class WorkingClient extends JFrame {
         } else {
             gameStarted = true;
 
-            // ТОЛЬКО статусная строка, БЕЗ JOptionPane
-            // ТОЧНО как в Socket версии
             statusLabel.setText("Вы играете за " +
                     (myColor == StoneColor.BLACK ? "черных" : "белых"));
 
@@ -182,7 +173,6 @@ public class WorkingClient extends JFrame {
     private void handleGameUpdate(GameUpdate update) {
         switch (update.getType()) {
             case GAME_STARTED:
-                // Используем текущее состояние игрока для показа правильного сообщения
                 if (myColor != StoneColor.EMPTY) {
                     if (myColor == StoneColor.BLACK) {
                         statusLabel.setText("Вы играете черными. Ваш ход (первый ход - один камень в центр)");
@@ -196,32 +186,23 @@ public class WorkingClient extends JFrame {
 
             case PLAYER_MOVED:
                 if (update.getPlayerId() != playerId) {
-                    // Ход противника
                     Position pos1 = update.getPosition1();
                     Position pos2 = update.getPosition2();
 
-                    if (pos1 != null) {
-                        board[pos1.getX()][pos1.getY()] = update.getColor();
-                    }
-                    if (pos2 != null && pos2.getX() != -1 && pos2.getY() != -1) {
+                    board[pos1.getX()][pos1.getY()] = update.getColor();
+                    if (pos2.getX() != -1 && pos2.getY() != -1) {
                         board[pos2.getX()][pos2.getY()] = update.getColor();
                     }
-
                     gamePanel.repaint();
                     gamePanel.clearPreview();
 
-                    // Проверяем, чей это был ход
                     if (update.getColor() != myColor) {
                         myTurn = true;
-
-                        // ТОЧНО как в Socket версии
+                        statusLabel.setText(isFirstMoveOfGame && myColor == StoneColor.WHITE ?
+                                "Ваш ход (первый ход белых)" : "Ваш ход");
                         if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
                             isFirstMoveOfGame = false;
-                            statusLabel.setText("Ваш ход (первый ход белых)");
-                        } else {
-                            statusLabel.setText("Ваш ход");
                         }
-
                     } else {
                         myTurn = false;
                         statusLabel.setText("Ход противника");
@@ -243,31 +224,13 @@ public class WorkingClient extends JFrame {
                 statusLabel.setText("Игра окончена: " + result);
                 gamePanel.clearPreview();
 
-                // Сбрасываем состояние доски
-                initializeBoard();
-                gamePanel.repaint();
-
-                // ТОЧНО как в Socket версии, но для gRPC
-                int option = JOptionPane.showConfirmDialog(
+                JOptionPane.showMessageDialog(
                         WorkingClient.this,
-                        message + "\nХотите сыграть еще раз?",
+                        message,
                         "Игра окончена",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.QUESTION_MESSAGE
+                        JOptionPane.INFORMATION_MESSAGE
                 );
 
-                if (option == JOptionPane.YES_OPTION) {
-                    // Сбрасываем игровое состояние
-                    isFirstMoveOfGame = true;
-                    selectingFirst = true;
-
-                    // Отправляем запрос на новую игру через gRPC
-                    requestNewGame();
-                    statusLabel.setText("Ожидаем решение второго игрока...");
-                } else {
-                    // Завершаем игру
-                    disconnect();
-                }
                 break;
 
             case ERROR:
@@ -289,13 +252,6 @@ public class WorkingClient extends JFrame {
         }
     }
 
-    private void sendNewGameReject() {
-        // В gRPC нет отдельного метода для отказа от новой игры,
-        // просто завершаем соединение
-        if (channel != null) {
-            channel.shutdown();
-        }
-    }
 
     private void sendMove(int x1, int y1, int x2, int y2) {
         if (!gameStarted || !myTurn) return;
@@ -322,7 +278,6 @@ public class WorkingClient extends JFrame {
 
                 SwingUtilities.invokeLater(() -> {
                     if (response.getSuccess()) {
-                        // Добавляем камни на свою доску сразу
                         board[x1][y1] = myColor;
                         if (x2 != -1 && y2 != -1) {
                             board[x2][y2] = myColor;
@@ -350,58 +305,13 @@ public class WorkingClient extends JFrame {
         }).start();
     }
 
-    private void requestNewGame() {
-        NewGameRequest request = NewGameRequest.newBuilder()
-                .setPlayerId(playerId)
-                .build();
-
-        asyncStub.requestNewGame(request, new StreamObserver<NewGameResponse>() {
-            @Override
-            public void onNext(NewGameResponse response) {
-                SwingUtilities.invokeLater(() -> {
-                    if (response.getAccepted()) {
-                        statusLabel.setText(response.getMessage());
-                        // Сбрасываем игру и переподключаемся
-                        resetGame();
-                        connectToServer();
-                    }
-                });
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                SwingUtilities.invokeLater(() -> {
-                    statusLabel.setText("Ошибка запроса новой игры: " + t.getMessage());
-                });
-            }
-
-            @Override
-            public void onCompleted() {
-                // Запрос завершен
-            }
-        });
-    }
-
-    private void resetGame() {
-        initializeBoard();
-        gameStarted = false;
-        myTurn = false;
-        myColor = StoneColor.EMPTY;
-        selectingFirst = true;
-        isFirstMoveOfGame = true;
-        previewX1 = previewY1 = -1;
-        showingPreview = false;
-        gamePanel.repaint();
-    }
-
     private void disconnect() {
         if (channel != null) {
             channel.shutdown();
         }
-        new Timer(2000, e -> System.exit(0)).start();
+        System.exit(0);
     }
 
-    // Внутренний класс для игровой панели
     class GamePanel extends JPanel {
         private static final int CELL_SIZE = 30;
         private static final int BOARD_SIZE = 19;
@@ -413,7 +323,6 @@ public class WorkingClient extends JFrame {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     if (!myTurn) {
-                        // ТОЛЬКО ошибки, как в Socket версии
                         JOptionPane.showMessageDialog(WorkingClient.this,
                                 "Сейчас не ваш ход!", "Предупреждение", JOptionPane.WARNING_MESSAGE);
                         return;
@@ -434,7 +343,6 @@ public class WorkingClient extends JFrame {
                         return;
                     }
 
-                    // Первый ход черных
                     if (isFirstMoveOfGame && myColor == StoneColor.BLACK) {
                         if (x == 9 && y == 9) {
                             showingPreview = false;
@@ -445,7 +353,6 @@ public class WorkingClient extends JFrame {
                             isFirstMoveOfGame = false;
                             statusLabel.setText("Ход противника");
                         } else {
-                            // ТОЛЬКО при ошибке первого хода
                             JOptionPane.showMessageDialog(WorkingClient.this,
                                     "Первый ход черных должен быть в центр доски (9,9)!",
                                     "Первый ход", JOptionPane.INFORMATION_MESSAGE);
@@ -453,14 +360,12 @@ public class WorkingClient extends JFrame {
                         return;
                     }
 
-                    // ... остальной код без JOptionPane, только статусная строка
                     if (selectingFirst) {
                         previewX1 = x;
                         previewY1 = y;
                         selectingFirst = false;
                         showingPreview = true;
 
-                        // ТОЛЬКО статусная строка
                         if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
                             statusLabel.setText("Выберите вторую позицию (первый ход белых)");
                         } else {
@@ -497,7 +402,6 @@ public class WorkingClient extends JFrame {
             drawBoard(g);
             drawStones(g);
 
-            // Предпросмотр выбора
             if (showingPreview && myTurn) {
                 Graphics2D g2d = (Graphics2D) g;
                 g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));

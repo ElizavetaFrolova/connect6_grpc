@@ -17,14 +17,12 @@ public class Connect6GrpcServer {
 
     public void start() throws IOException {
         server.start();
-        System.out.println("✅ gRPC сервер Connect6 запущен на порту " + port);
-        System.out.println("✅ Ожидаем подключения игроков...");
+        System.out.println("gRPC сервер Connect6 запущен на порту " + port);
+        System.out.println("Ожидаем подключения игроков...");
 
-        // Обработка завершения работы
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("⏳ Завершение сервера...");
             Connect6GrpcServer.this.stop();
-            System.out.println("❌ Сервер остановлен");
+            System.out.println("Сервер остановлен");
         }));
     }
 

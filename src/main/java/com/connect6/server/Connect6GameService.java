@@ -13,11 +13,6 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
     private final BlockingQueue<PlayerSession> waitingQueue = new LinkedBlockingQueue<>();
     private final Map<Integer, GameSession> activeGames = new ConcurrentHashMap<>();
 
-    // Существующие поля...
-    private final Map<Integer, Boolean> newGameRequests = new ConcurrentHashMap<>();
-    private final BlockingQueue<PlayerSession> newGameWaitingQueue = new LinkedBlockingQueue<>();
-    // ... остальной код
-
     static class PlayerSession {
         final int id;
         final String name;
@@ -38,14 +33,14 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
         final PlayerSession blackPlayer;
         final PlayerSession whitePlayer;
         GameBoard gameBoard;
-        int currentPlayerId; // ID игрока, чей ход
+        int currentPlayerId;
 
         GameSession(int gameId, PlayerSession blackPlayer, PlayerSession whitePlayer) {
             this.gameId = gameId;
             this.blackPlayer = blackPlayer;
             this.whitePlayer = whitePlayer;
             this.gameBoard = new GameBoard();
-            this.currentPlayerId = blackPlayer.id; // Черные ходят первыми
+            this.currentPlayerId = blackPlayer.id;
 
             blackPlayer.gameId = gameId;
             whitePlayer.gameId = gameId;
@@ -66,15 +61,9 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
                     whitePlayer.id : blackPlayer.id;
         }
 
-        // ДОБАВЛЯЕМ ЭТОТ МЕТОД:
-        void resetGame() {
-            this.gameBoard = new GameBoard();
-            this.currentPlayerId = blackPlayer.id; // Черные ходят первыми
-        }
     }
 
     public Connect6GameService() {
-        // Фоновая задача для создания игр
         Executors.newSingleThreadExecutor().submit(() -> {
             while (true) {
                 try {
@@ -103,14 +92,12 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
                     player1.name + " (черные, ID:" + player1.id + ") vs " +
                     player2.name + " (белые, ID:" + player2.id + ")");
 
-            // Уведомляем черного игрока
             ConnectResponse blackResponse = ConnectResponse.newBuilder()
                     .setPlayerId(player1.id)
                     .setColor(StoneColor.BLACK)
                     .setMessage("Игра началась! Вы играете черными. Первый ход: один камень в центр (9,9)")
                     .build();
 
-            // Уведомляем белого игрока
             ConnectResponse whiteResponse = ConnectResponse.newBuilder()
                     .setPlayerId(player2.id)
                     .setColor(StoneColor.WHITE)
@@ -120,7 +107,6 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
             player1.connectObserver.onNext(blackResponse);
             player2.connectObserver.onNext(whiteResponse);
 
-            // Закрываем соединения для connectPlayer
             player1.connectObserver.onCompleted();
             player2.connectObserver.onCompleted();
         }
@@ -144,13 +130,11 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
 
                     playerSessions.put(playerId, session);
 
-                    // Добавляем в очередь ожидания
                     try {
                         waitingQueue.put(session);
 
                         System.out.println("⏳ Игрок " + playerId + " добавлен в очередь ожидания. В очереди: " + waitingQueue.size());
 
-                        // Отправляем ответ о ожидании
                         ConnectResponse waitResponse = ConnectResponse.newBuilder()
                                 .setPlayerId(playerId)
                                 .setColor(StoneColor.EMPTY)
@@ -193,15 +177,12 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
         PlayerSession session = playerSessions.remove(playerId);
         if (session != null) {
             waitingQueue.remove(session);
-            newGameWaitingQueue.remove(session);  // ← ДОБАВЬТЕ ЭТУ СТРОКУ
-            newGameRequests.remove(playerId);     // ← ДОБАВЬТЕ ЭТУ СТРОКУ
 
-            // Если игрок был в игре, завершаем игру
             if (session.gameId != -1) {
-                GameSession game = activeGames.remove(session.gameId);
+                GameSession game = activeGames.get(session.gameId);
                 if (game != null) {
                     PlayerSession opponent = game.getOpponent(playerId);
-                    if (opponent != null && opponent.updateObserver != null) {
+                    if (opponent != null) {
                         GameUpdate gameOver = GameUpdate.newBuilder()
                                 .setType(GameUpdate.UpdateType.GAME_OVER)
                                 .setMessage("Противник отключился. Игра завершена.")
@@ -242,13 +223,11 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
             return;
         }
 
-        // Проверяем ход
         int x1 = request.getPosition1().getX();
         int y1 = request.getPosition1().getY();
         int x2 = request.getPosition2().getX();
         int y2 = request.getPosition2().getY();
 
-        // Для первого хода черных
         if (player.color == StoneColor.BLACK && game.gameBoard.isFirstMove()) {
             if (x2 != -1 || y2 != -1) {
                 sendError(responseObserver, "Первый ход черных - только один камень");
@@ -260,7 +239,6 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
             }
         }
 
-        // Размещаем камни на доске
         boolean success = game.gameBoard.placeStones(x1, y1, x2, y2, player.color);
 
         if (!success) {
@@ -268,10 +246,8 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
             return;
         }
 
-        // Проверяем победителя
         StoneColor winner = game.gameBoard.checkWinner();
 
-        // Уведомляем противника
         PlayerSession opponent = game.getOpponent(playerId);
         if (opponent != null && opponent.updateObserver != null) {
             GameUpdate opponentUpdate = GameUpdate.newBuilder()
@@ -280,13 +256,11 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
                     .setPosition1(request.getPosition1())
                     .setPosition2(request.getPosition2())
                     .setColor(player.color)
-                    .setMessage("Противник сделал ход")
                     .build();
             opponent.updateObserver.onNext(opponentUpdate);
         }
 
         if (winner != StoneColor.EMPTY) {
-            // Конец игры
             GameUpdate gameOver = GameUpdate.newBuilder()
                     .setType(GameUpdate.UpdateType.GAME_OVER)
                     .setColor(winner)
@@ -303,20 +277,14 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
                 opponent.updateObserver.onCompleted();
             }
 
-            // Удаляем игру
-            activeGames.remove(player.gameId);
-            player.gameId = -1;
-            if (opponent != null) opponent.gameId = -1;
-
             MoveResponse response = MoveResponse.newBuilder()
                     .setSuccess(true)
-                    .setMessage("Ход принят. Игра окончена! " +
+                    .setMessage("Игра окончена! " +
                             (winner == player.color ? "Вы победили!" : "Вы проиграли!"))
                     .build();
             responseObserver.onNext(response);
 
         } else {
-            // Продолжаем игру
             game.switchTurn();
 
             MoveResponse response = MoveResponse.newBuilder()
@@ -348,7 +316,6 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
         if (player != null) {
             player.updateObserver = responseObserver;
 
-            // Отправляем начальное обновление
             GameUpdate update = GameUpdate.newBuilder()
                     .setType(GameUpdate.UpdateType.GAME_STARTED)
                     .setMessage("Вы успешно подписались на обновления игры")
@@ -363,142 +330,6 @@ public class Connect6GameService extends Connect6GameGrpc.Connect6GameImplBase {
 
             responseObserver.onNext(error);
             responseObserver.onCompleted();
-        }
-    }
-
-    @Override
-    public void requestNewGame(NewGameRequest request,
-                               StreamObserver<NewGameResponse> responseObserver) {
-        int playerId = request.getPlayerId();
-        PlayerSession player = playerSessions.get(playerId);
-
-        if (player == null) {
-            NewGameResponse response = NewGameResponse.newBuilder()
-                    .setAccepted(false)
-                    .setMessage("Игрок не найден")
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-            return;
-        }
-
-        System.out.println("📝 Игрок " + playerId + " запросил новую игру");
-
-        // Добавляем игрока в очередь ожидания новой игры
-        try {
-            newGameWaitingQueue.put(player);
-            newGameRequests.put(playerId, true);
-
-            NewGameResponse response = NewGameResponse.newBuilder()
-                    .setAccepted(true)
-                    .setMessage("Запрос принят. Ожидаем второго игрока...")
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-
-            // Запускаем поиск пары для новой игры
-            tryCreateNewGameFromQueue();
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            NewGameResponse response = NewGameResponse.newBuilder()
-                    .setAccepted(false)
-                    .setMessage("Ошибка: " + e.getMessage())
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-        }
-    }
-
-    private void tryCreateNewGameFromQueue() {
-        new Thread(() -> {
-            try {
-                // Ждем двух игроков
-                if (newGameWaitingQueue.size() >= 2) {
-                    PlayerSession player1 = newGameWaitingQueue.take();
-                    PlayerSession player2 = newGameWaitingQueue.take();
-
-                    // Убираем из запросов
-                    newGameRequests.remove(player1.id);
-                    newGameRequests.remove(player2.id);
-
-                    // Создаем новую игру
-                    createNewGameForPlayers(player1, player2);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }).start();
-    }
-
-    private void createNewGameForPlayers(PlayerSession player1, PlayerSession player2) {
-        int gameId = activeGames.size() + 1;
-
-        // Определяем цвета для новой игры
-        // Чередуем цвета: если в предыдущей игре был черным, теперь будет белым
-        StoneColor color1 = (player1.color == StoneColor.BLACK) ?
-                StoneColor.WHITE : StoneColor.BLACK;
-        StoneColor color2 = (color1 == StoneColor.BLACK) ?
-                StoneColor.WHITE : StoneColor.BLACK;
-
-        // Создаем новую игровую сессию
-        GameSession game = new GameSession(gameId,
-                color1 == StoneColor.BLACK ? player1 : player2,
-                color2 == StoneColor.BLACK ? player1 : player2);
-
-        activeGames.put(gameId, game);
-
-        // Обновляем цвета у игроков
-        player1.color = color1;
-        player2.color = color2;
-        player1.gameId = gameId;
-        player2.gameId = gameId;
-
-        System.out.println("🔄 Новая игра #" + gameId + ": " +
-                player1.name + " (" + player1.color + ", ID:" + player1.id + ") vs " +
-                player2.name + " (" + player2.color + ", ID:" + player2.id + ")");
-
-        // Уведомляем игроков
-        notifyPlayersNewGameStarted(player1, player2, game);
-    }
-
-    private void notifyPlayersNewGameStarted(PlayerSession player1, PlayerSession player2, GameSession game) {
-        // Уведомляем игрока 1
-        if (player1.updateObserver != null) {
-            GameUpdate player1Update = GameUpdate.newBuilder()
-                    .setType(GameUpdate.UpdateType.GAME_STARTED)
-                    .setMessage("Новая игра началась! Вы играете " +
-                            (player1.color == StoneColor.BLACK ? "черными" : "белыми"))
-                    .build();
-            player1.updateObserver.onNext(player1Update);
-
-            // Если это черные, уведомляем о ходе
-            if (player1.color == StoneColor.BLACK) {
-                GameUpdate blackTurn = GameUpdate.newBuilder()
-                        .setType(GameUpdate.UpdateType.PLAYER_MOVED)
-                        .setMessage("Ваш ход (первый ход - один камень в центр)")
-                        .build();
-                player1.updateObserver.onNext(blackTurn);
-            }
-        }
-
-        // Уведомляем игрока 2
-        if (player2.updateObserver != null) {
-            GameUpdate player2Update = GameUpdate.newBuilder()
-                    .setType(GameUpdate.UpdateType.GAME_STARTED)
-                    .setMessage("Новая игра началась! Вы играете " +
-                            (player2.color == StoneColor.BLACK ? "черными" : "белыми"))
-                    .build();
-            player2.updateObserver.onNext(player2Update);
-
-            // Если это черные, уведомляем о ходе
-            if (player2.color == StoneColor.BLACK) {
-                GameUpdate blackTurn = GameUpdate.newBuilder()
-                        .setType(GameUpdate.UpdateType.PLAYER_MOVED)
-                        .setMessage("Ваш ход (первый ход - один камень в центр)")
-                        .build();
-                player2.updateObserver.onNext(blackTurn);
-            }
         }
     }
 }

@@ -1,9 +1,8 @@
 package com.connect6.server;
-
 import com.connect6.grpc.StoneColor;
 
 public class GameBoard {
-    private static final int BOARD_SIZE = 19;
+    private final int BOARD_SIZE = 19;
     private StoneColor[][] board;
     private boolean firstMove;
 
@@ -22,23 +21,22 @@ public class GameBoard {
     }
 
     public boolean placeStones(int x1, int y1, int x2, int y2, StoneColor color) {
-        // Проверка первого хода черных
         if (firstMove && color == StoneColor.BLACK) {
             if (x2 != -1 || y2 != -1) {
-                return false; // Черные должны поставить только один камень
+                return false;
             }
             if (!isValidPosition(x1, y1) || x1 != 9 || y1 != 9) {
-                return false; // Первый ход должен быть в центр (9,9)
+                return false;
             }
             if (board[x1][y1] != StoneColor.EMPTY) {
-                return false; // Клетка уже занята
+                return false;
             }
 
             board[x1][y1] = color;
             firstMove = false;
             return true;
         }
-        // Обычный ход (2 камня)
+
         else {
             if (x1 == -1 || y1 == -1 || x2 == -1 || y2 == -1) {
                 return false;
@@ -50,7 +48,7 @@ public class GameBoard {
                 return false;
             }
             if (x1 == x2 && y1 == y2) {
-                return false; // Нельзя поставить 2 камня в одну клетку
+                return false;
             }
 
             board[x1][y1] = color;
@@ -68,10 +66,10 @@ public class GameBoard {
         for (int i = 0; i < BOARD_SIZE; i++) {
             for (int j = 0; j < BOARD_SIZE; j++) {
                 if (board[i][j] != StoneColor.EMPTY) {
-                    if (checkLine(i, j, 1, 0) ||  // горизонталь
-                            checkLine(i, j, 0, 1) ||  // вертикаль
-                            checkLine(i, j, 1, 1) ||  // диагональ /
-                            checkLine(i, j, 1, -1)) { // диагональ \
+                    if (checkLine(i, j, 1, 0) ||
+                            checkLine(i, j, 0, 1) ||
+                            checkLine(i, j, 1, 1) ||
+                            checkLine(i, j, 1, -1)) {
                         return board[i][j];
                     }
                 }
@@ -86,7 +84,6 @@ public class GameBoard {
 
         int count = 1;
 
-        // Проверка в одном направлении
         for (int i = 1; i < 6; i++) {
             int newX = x + i * dx;
             int newY = y + i * dy;
@@ -96,7 +93,6 @@ public class GameBoard {
             count++;
         }
 
-        // Проверка в противоположном направлении
         for (int i = 1; i < 6; i++) {
             int newX = x - i * dx;
             int newY = y - i * dy;
@@ -108,14 +104,6 @@ public class GameBoard {
 
         return count >= 6;
     }
-
-    public void reset() {
-        initializeBoard();
-        firstMove = true;
-    }
-
-    // Геттеры
-    public StoneColor[][] getBoard() { return board; }
     public boolean isFirstMove() { return firstMove; }
     public int getBoardSize() { return BOARD_SIZE; }
 }
