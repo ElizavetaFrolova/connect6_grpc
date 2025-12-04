@@ -134,37 +134,18 @@ public class WorkingClient extends JFrame {
         myColor = response.getColor();
 
         if (myColor == StoneColor.EMPTY) {
-            statusLabel.setText("Ожидание второго игрока... (ID: " + playerId + ")");
+            statusLabel.setText("Ожидание второго игрока...");
         } else {
             gameStarted = true;
 
-            // Сразу показываем полный статус
-            String status = "Вы играете за " +
-                    (myColor == StoneColor.BLACK ? "черных" : "белых") +
-                    " (ID: " + playerId + ")";
+            // ТОЛЬКО статусная строка, БЕЗ JOptionPane
+            // ТОЧНО как в Socket версии
+            statusLabel.setText("Вы играете за " +
+                    (myColor == StoneColor.BLACK ? "черных" : "белых"));
 
             if (myColor == StoneColor.BLACK) {
                 myTurn = true;
-                status += " - ВАШ ХОД! Первый ход: ОДИН камень в центр (9,9)";
-            } else {
-                status += " - Ожидайте ход черных";
-            }
-
-            statusLabel.setText(status);
-
-            // Показываем информационное сообщение в начале игры
-            if (myColor == StoneColor.BLACK) {
-                JOptionPane.showMessageDialog(this,
-                        "Вы играете ЧЕРНЫМИ!\n\n" +
-                                "Первый ход черных: поставьте ОДИН камень в центр доски (клетка 9,9).\n" +
-                                "Кликните в центр доски для первого хода.",
-                        "Начало игры", JOptionPane.INFORMATION_MESSAGE);
-            } else {
-                JOptionPane.showMessageDialog(this,
-                        "Вы играете БЕЛЫМИ!\n\n" +
-                                "Ожидайте первый ход черных (они должны поставить один камень в центр).\n" +
-                                "Затем ваш ход: нужно будет поставить ДВА камня.",
-                        "Начало игры", JOptionPane.INFORMATION_MESSAGE);
+                statusLabel.setText("Ваш ход (первый ход - один камень в центр)");
             }
 
             subscribeToGameUpdates();
@@ -201,7 +182,16 @@ public class WorkingClient extends JFrame {
     private void handleGameUpdate(GameUpdate update) {
         switch (update.getType()) {
             case GAME_STARTED:
-                statusLabel.setText("Вы подключены к игре");
+                // Используем текущее состояние игрока для показа правильного сообщения
+                if (myColor != StoneColor.EMPTY) {
+                    if (myColor == StoneColor.BLACK) {
+                        statusLabel.setText("Вы играете черными. Ваш ход (первый ход - один камень в центр)");
+                    } else {
+                        statusLabel.setText("Вы играете белыми. Ожидайте ход черных");
+                    }
+                } else {
+                    statusLabel.setText("Игра началась");
+                }
                 break;
 
             case PLAYER_MOVED:
@@ -224,16 +214,17 @@ public class WorkingClient extends JFrame {
                     if (update.getColor() != myColor) {
                         myTurn = true;
 
-                        // Подробное сообщение в зависимости от ситуации
+                        // ТОЧНО как в Socket версии
                         if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
-                            statusLabel.setText("ВАШ ХОД! Первый ход белых: поставьте ДВА камня");
+                            isFirstMoveOfGame = false;
+                            statusLabel.setText("Ваш ход (первый ход белых)");
                         } else {
-                            statusLabel.setText("ВАШ ХОД! Поставьте два камня");
+                            statusLabel.setText("Ваш ход");
                         }
 
                     } else {
                         myTurn = false;
-                        statusLabel.setText("Ход противника...");
+                        statusLabel.setText("Ход противника");
                     }
                 }
                 break;
@@ -244,19 +235,37 @@ public class WorkingClient extends JFrame {
 
                 String result = update.getColor() == myColor ?
                         "Вы победили!" : "Вы проиграли!";
+                String message = update.getMessage();
+                if (message == null || message.isEmpty()) {
+                    message = result;
+                }
+
                 statusLabel.setText("Игра окончена: " + result);
                 gamePanel.clearPreview();
 
+                // Сбрасываем состояние доски
+                initializeBoard();
+                gamePanel.repaint();
+
+                // ТОЧНО как в Socket версии, но для gRPC
                 int option = JOptionPane.showConfirmDialog(
-                        null,
-                        result + "\n" + update.getMessage() + "\nХотите сыграть еще раз?",
+                        WorkingClient.this,
+                        message + "\nХотите сыграть еще раз?",
                         "Игра окончена",
-                        JOptionPane.YES_NO_OPTION
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE
                 );
 
                 if (option == JOptionPane.YES_OPTION) {
+                    // Сбрасываем игровое состояние
+                    isFirstMoveOfGame = true;
+                    selectingFirst = true;
+
+                    // Отправляем запрос на новую игру через gRPC
                     requestNewGame();
+                    statusLabel.setText("Ожидаем решение второго игрока...");
                 } else {
+                    // Завершаем игру
                     disconnect();
                 }
                 break;
@@ -277,6 +286,14 @@ public class WorkingClient extends JFrame {
                     statusLabel.setText("Ваш ход (исправьте ход)");
                 }
                 break;
+        }
+    }
+
+    private void sendNewGameReject() {
+        // В gRPC нет отдельного метода для отказа от новой игры,
+        // просто завершаем соединение
+        if (channel != null) {
+            channel.shutdown();
         }
     }
 
@@ -396,17 +413,9 @@ public class WorkingClient extends JFrame {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     if (!myTurn) {
-                        String message = "Сейчас не ваш ход!\n";
-                        if (myColor == StoneColor.BLACK && !gameStarted) {
-                            message += "Игра еще не началась.";
-                        } else if (myColor == StoneColor.WHITE && isFirstMoveOfGame) {
-                            message += "Ожидайте первый ход черных (один камень в центр).";
-                        } else {
-                            message += "Ход противника.";
-                        }
-
+                        // ТОЛЬКО ошибки, как в Socket версии
                         JOptionPane.showMessageDialog(WorkingClient.this,
-                                message, "Предупреждение", JOptionPane.WARNING_MESSAGE);
+                                "Сейчас не ваш ход!", "Предупреждение", JOptionPane.WARNING_MESSAGE);
                         return;
                     }
 
@@ -434,40 +443,35 @@ public class WorkingClient extends JFrame {
                             sendMove(x, y, -1, -1);
                             myTurn = false;
                             isFirstMoveOfGame = false;
-                            statusLabel.setText("Ход отправлен! Ожидайте белых...");
+                            statusLabel.setText("Ход противника");
                         } else {
-                            String message = "Первый ход черных должен быть в центр доски (9,9)!\n\n";
-                            message += "Текущая позиция: (" + x + "," + y + ")\n";
-                            message += "Нужная позиция: (9,9) - центр доски";
-
+                            // ТОЛЬКО при ошибке первого хода
                             JOptionPane.showMessageDialog(WorkingClient.this,
-                                    message, "Первый ход", JOptionPane.INFORMATION_MESSAGE);
+                                    "Первый ход черных должен быть в центр доски (9,9)!",
+                                    "Первый ход", JOptionPane.INFORMATION_MESSAGE);
                         }
                         return;
                     }
 
-                    // Первый ход белых или обычный ход
+                    // ... остальной код без JOptionPane, только статусная строка
                     if (selectingFirst) {
                         previewX1 = x;
                         previewY1 = y;
                         selectingFirst = false;
                         showingPreview = true;
 
-                        String status = "Выбрана первая позиция (" + x + "," + y + "). ";
+                        // ТОЛЬКО статусная строка
                         if (isFirstMoveOfGame && myColor == StoneColor.WHITE) {
-                            status += "Выберите вторую позицию (первый ход белых - ДВА камня)";
+                            statusLabel.setText("Выберите вторую позицию (первый ход белых)");
                         } else {
-                            status += "Выберите вторую позицию";
+                            statusLabel.setText("Выберите вторую позицию");
                         }
 
-                        statusLabel.setText(status);
                         repaint();
                     } else {
                         if (x == previewX1 && y == previewY1) {
                             JOptionPane.showMessageDialog(WorkingClient.this,
-                                    "Нельзя выбрать ту же клетку для второго камня!\n" +
-                                            "Первая позиция: (" + previewX1 + "," + previewY1 + ")\n" +
-                                            "Выберите другую клетку.",
+                                    "Нельзя выбрать ту же клетку для второго камня!",
                                     "Ошибка", JOptionPane.ERROR_MESSAGE);
                             return;
                         }
@@ -481,7 +485,7 @@ public class WorkingClient extends JFrame {
                             isFirstMoveOfGame = false;
                         }
                         myTurn = false;
-                        statusLabel.setText("Ход отправлен! Ожидайте ответа противника...");
+                        statusLabel.setText("Ход противника");
                     }
                 }
             });

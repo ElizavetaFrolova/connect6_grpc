@@ -109,6 +109,11 @@ public class GameBoard {
         return count >= 6;
     }
 
+    public void reset() {
+        initializeBoard();
+        firstMove = true;
+    }
+
     // Геттеры
     public StoneColor[][] getBoard() { return board; }
     public boolean isFirstMove() { return firstMove; }
